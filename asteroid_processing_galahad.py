@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jan 14 16:12:16 2025
+
+@author: phoebe
+"""
+
+import pandas as pd
+from unpack_vdif import readheader, readframes, sortframes, unpacksamps
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.fft import fft, fftshift
+from datetime import datetime
+from datetime import timedelta
+from scipy import constants
+
+def resample_deldots(filename):
+    '''# This gives you a pandas 'series' jb_deldot with the data you need indexed by time, so that you can now say 
+# deldot = jb_deldot[row_time]'''
+    df=pd.read_csv(filename,header=None, delimiter=',') # read in the file to a dataframe df
+
+    df['datetime']=pd.to_datetime(df[0])  #convert the first col to a proper datetime in a new column
+    df=df.set_index('datetime')  # make this the index
+    series=df[2]
+    deldot=series.resample("1s").interpolate('linear')  #re-sample to 1 sec intervals
+    return df, deldot
+
+df1, jb_deldot = resample_deldots('/share/nas2/pryder/jodrell-2006wb.txt')
+df2, rob_deldot = resample_deldots('/share/nas2/pryder/robledo-2006wb.txt')
+
+infilename = '/share/nas2/pryder/DD18004_20241126_lo1_7167MHz_2026WB_14.vdif'
+infile = open(infilename)
+header = readheader(infile)
+framedata, seconds, framenums, threads = readframes(infile, header)
+infile.close() # finished with file
+threaddata = sortframes(framedata, seconds, framenums, threads)
+
+pola = unpacksamps(threaddata[0,:], header['nbits'], header['dtype'])
+
+fft_length = 1
+
+points = 4000000*fft_length
+
+height = len(pola)//points
+
+reduced_length = height*points
+
+zeros_length = int((points/2)+1)
+
+pola_reduced = pola[0:reduced_length]
+dat = pola_reduced.reshape((height, points))
+cdat = np.zeros_like(dat, dtype=complex)
+
+seconds=header['seconds']
+yrs=header['epoch']/2
+
+refdate=datetime(2017,1,1)
+start_time=refdate+timedelta(seconds=float(seconds))
+print(start_time.isoformat())
+
+print('about to Fourier transform')
+row_length = fft_length # 1 second
+shift = []
+c=constants.c
+f_0 = 7166988879.549016
+result = np.zeros((height, points), dtype=complex)
+
+BW = 2e6
+for i in range(height):
+    row_time=start_time+timedelta(seconds=row_length*i)
+    previous_row_time = start_time+timedelta(seconds=row_length*(i-1))
+    next_row_time = start_time+timedelta(seconds=row_length*(i+1))
+    deldot = rob_deldot[row_time] + jb_deldot[row_time]
+    previous_deldot = rob_deldot[previous_row_time]+jb_deldot[previous_row_time]
+    next_deldot = rob_deldot[next_row_time]+jb_deldot[next_row_time]
+    a = (next_deldot-previous_deldot)/2
+    Delta_f=f_0*((deldot*1e3)/c)
+    shift.append(int(Delta_f))
+    t = np.linspace(0, 1, int(points))
+    negative_chirp = np.exp(-1j*2*np.pi* (0.5*a* t**2))
+    cdat[i] = dat[i]
+    cdat[i] = cdat[i]*negative_chirp
+    temp = fftshift(fft(cdat[i]))
+    chan_shift = int((Delta_f/BW)*points/2)
+    shifted=np.roll(temp, chan_shift)
+    result[i] = shifted
+    
+print('shifted')
+
+power = (np.abs(result))**2
+spec = power.sum(axis=0)
+
+window = 200*fft_length
+
+centre = (len(spec)/4)*3
+low = int(centre-window)
+high = int(centre+window)
+
+spec_sub = spec[low:high]
+
+plt.plot(spec_sub)
+
+plt.savefig('spectrum_deramp_pos1.png')

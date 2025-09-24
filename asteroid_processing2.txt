@@ -1,0 +1,80 @@
+import pandas as pd
+from unpack_vdif import readheader, readframes, sortframes, unpacksamps
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.fft import rfft
+from datetime import datetime
+from datetime import timedelta
+
+
+def resample_deldots(filename):
+    '''# This gives you a pandas 'series' jb_deldot with the data you need indexed by time, so that you can now say 
+# deldot = jb_deldot[row_time]'''
+    df=pd.read_csv(filename,header=None, delimiter=',') # read in the file to a dataframe df
+
+    df['datetime']=pd.to_datetime(df[0])  #convert the first col to a proper datetime in a new column
+    df=df.set_index('datetime')  # make this the index
+    series=df[2] # make series from the deldot column, change the column number depending on whats in your file
+    
+    deldot=series.resample("1s").interpolate('linear')  #re-sample to 1 sec intervals
+    return df, deldot
+
+df1, jb_deldot = resample_deldots('/Users/user/Documents/VS Code/Radar/Asteroid-Processing/jodrell-2006wb.txt')
+df2, rob_deldot = resample_deldots('/Users/user/Documents/VS Code/Radar/Asteroid-Processing/robledo-2006wb.txt')
+
+infilename = '/Users/user/Documents/VS Code/Radar/Asteroid-Processing/DD18004_20241126_lo1_7167MHz_2026WB_15.vdif'
+infile = open(infilename)
+header = readheader(infile)
+framedata, seconds, framenums, threads = readframes(infile, header)
+infile.close() # finished with file
+threaddata = sortframes(framedata, seconds, framenums, threads)
+
+pola = unpacksamps(threaddata[0,:], header['nbits'], header['dtype'])
+
+pola_reduced = pola[0:1068000000]
+dat = pola_reduced.reshape((267, 4000000))
+
+seconds=header['seconds']
+yrs=header['epoch']/2
+
+refdate=datetime(2017,1,1)
+start_time=refdate+timedelta(seconds=float(seconds))
+print(start_time.isoformat())
+
+print('about to Fourier transform')
+result = np.zeros((267, 2000001), dtype=complex)
+for i in range(267):
+    result[i] = rfft(dat[i])
+
+row_length = 1 # 1 second
+shift = []
+
+
+f_0 = 7166988879.549016 
+c=3e8
+for i in range(result.shape[0]):
+    row_time=start_time+timedelta(seconds=row_length*i)
+    deldot = rob_deldot[row_time] + jb_deldot[row_time]
+    Delta_f=f_0*((deldot*1e3)/c)
+    shift.append(int(Delta_f))
+
+# print(len(shift))
+
+print('about to shift')
+shifted=np.roll(result,shift, axis=1)
+
+
+# plt.imshow(shifted, origin='lower', cmap='rainbow')
+# plt.show()
+
+shifted = (np.abs(shifted))**2
+spec = shifted.sum(axis=0)
+sd = np.std(spec) 
+spec /= sd
+print(sd)
+print(spec)
+print('about to plot')
+plt.plot(spec)
+plt.xlabel("samples")
+plt.ylabel("power (stds)")
+plt.show()

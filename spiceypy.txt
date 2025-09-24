@@ -1,0 +1,56 @@
+# %%
+import planetmapper
+import spiceypy as spice
+import datetime as dt
+import scipy.constants as c
+
+# %%
+planetmapper.base.prevent_kernel_loading()
+
+# %%
+kernels_to_load = [ '/Users/user/Downloads/latest_leapseconds.tls.txt', '/Users/user/Downloads/earth_assoc_itrf93.tf.txt', '/Users/user/Downloads/earth_latest_high_prec.bpc', '/Users/user/Downloads/de442s.bsp', '/Users/user/Downloads/earthstns_itrf93_201023.bsp', '/Users/user/Downloads/3359024.bsp']
+
+# %%
+for kernel in kernels_to_load:
+    spice.furnsh(kernel)
+
+# %%
+time=dt.datetime.fromisoformat('2024-11-26T00:00:00')
+
+# %%
+body = planetmapper.BasicBody('3359024',time, observer='DSS-63',aberration_correction='NONE')
+
+# %%
+print(body.target_distance)
+
+# %%
+print(body.et)
+
+# %%
+# epoch_time = dt.datetime(2000, 1, 1, 0)
+# delta = (time - epoch_time)
+# delta = delta.total_seconds()
+
+# # %%
+# delta
+
+# # %%
+# (delta - body.et)/3600
+
+# %%
+nocorr = spice.spkezr('3359024', body.et, 'J2000', 'none', '399')
+
+# %%
+oneway = nocorr[1]
+twoway = oneway*2 
+
+# %%
+distance = oneway*c.speed_of_light
+
+# %% [markdown]
+# distance of 2006WB at closest appraoch is 0.0059 au -> approx 882627437 km
+
+# %%
+print(distance - 882627437)
+
+

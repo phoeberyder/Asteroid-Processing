@@ -1,0 +1,11 @@
+\begindata
+ 
+SITES         = ( 'LOVELL')
+ 
+LOVELL_CENTER = 399
+LOVELL_FRAME  = 'EARTH_FIXED'
+LOVELL_XYZ    = (3822626.040, -154105.650, 5086486.040)
+LOVELL_UP     = 'Z'
+LOVELL_NORTH  = 'X'
+
+\begintext
